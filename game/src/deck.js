@@ -1,90 +1,86 @@
-// deck.js — zones and shuffling for Ember Sigils.
-// Every card instance has a unique uid and lives in exactly one zone:
-// draw pile, hand, discard, or limbo (in play while it resolves). A move
-// is remove-from-one-list plus append-to-another, never a copy, so a card
-// can never sit in two zones or vanish. The deck owns a seeded generator
-// of its own, so the same seed with the same inputs replays the same game.
+// Ember Sigils — seeded shuffle and the draw / discard piles.
+// Pure logic: no DOM, no network. One Pile per fighter, 20 cards each.
 
-// mulberry32: a small seeded generator with a full 32-bit period.
-export function makeRng(seed) {
+import { CARD_DEFS, DECK_SIZE } from "./cards.js";
+
+// Small deterministic PRNG so a seed replays the same shuffles.
+export function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
-    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-// Fisher-Yates with an inclusive upper bound: each position swaps with a
-// uniformly chosen earlier-or-equal one. Never sort by a random
-// comparator — that biases the shuffle.
-export function shuffleInPlace(list, rng) {
-  for (let i = list.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(rng() * (i + 1));
-    [list[i], list[j]] = [list[j], list[i]];
+export function fisherYates(list, rand) {
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = list[i];
+    list[i] = list[j];
+    list[j] = tmp;
   }
   return list;
 }
 
-let nextUid = 1;
-
-export class Deck {
-  constructor(cardIds, rng) {
-    this.rng = rng;
-    // Instances, not ids: two copies of one type are distinct cards.
-    this.drawPile = cardIds.map((id) => ({ uid: nextUid++, typeId: id }));
-    shuffleInPlace(this.drawPile, rng);
-    this.hand = [];
-    this.discard = [];
-    this.limbo = [];
+export class Pile {
+  constructor(seed, side) {
+    this.side = side;
+    this.rand = mulberry32(seed);
+    this.stock = []; // draw pile; the top card is the last element
+    this.grave = []; // discard pile
   }
 
-  // Draw n cards into the hand. An empty draw pile reshuffles the discard
-  // (shuffled, so the order is new); with neither pile left, drawing
-  // simply stops. A hand over the cap burns the extra card to discard.
-  draw(n, handCap = 7) {
-    const drawn = [];
-    for (let i = 0; i < n; i += 1) {
-      if (this.drawPile.length === 0) {
-        if (this.discard.length === 0) break;
-        this.drawPile = shuffleInPlace(this.discard, this.rng);
-        this.discard = [];
-      }
-      const card = this.drawPile.pop();
-      if (this.hand.length >= handCap) {
-        this.discard.push(card);
-      } else {
-        this.hand.push(card);
-        drawn.push(card);
+  // Two copies of each of the ten kinds, shuffled once.
+  fill() {
+    const instances = [];
+    for (const def of CARD_DEFS) {
+      for (let copy = 0; copy < 2; copy++) {
+        instances.push({ uid: `${this.side}:${def.id}#${copy + 1}`, def });
       }
     }
-    return drawn;
+    fisherYates(instances, this.rand);
+    this.stock = instances;
+    return this;
   }
 
-  // Move a card out of the hand into limbo while its effects resolve, so
-  // a draw effect can never reshuffle the card being played back in.
-  toLimbo(uid) {
-    const at = this.hand.findIndex((c) => c.uid === uid);
-    if (at === -1) return null;
-    const [card] = this.hand.splice(at, 1);
-    this.limbo.push(card);
-    return card;
+  // Take one card, reshuffling the discard pile when the stock runs dry.
+  takeOne() {
+    if (this.stock.length === 0) {
+      if (this.grave.length === 0) return null;
+      this.stock = this.grave;
+      this.grave = [];
+      fisherYates(this.stock, this.rand);
+    }
+    return this.stock.pop();
   }
 
-  // After resolution the card leaves limbo for the discard pile.
-  limboToDiscard(uid) {
-    const at = this.limbo.findIndex((c) => c.uid === uid);
-    if (at === -1) return;
-    this.discard.push(this.limbo.splice(at, 1)[0]);
+  // Draw n cards into a hand. Over the hand cap, the extra card is
+  // discarded straight away ("burned") instead of vanishing.
+  drawInto(hand, n, cap) {
+    let drawn = 0;
+    let burned = 0;
+    for (let i = 0; i < n; i++) {
+      const card = this.takeOne();
+      if (!card) break;
+      if (hand.length >= cap) {
+        this.grave.push(card);
+        burned++;
+      } else {
+        hand.push(card);
+        drawn++;
+      }
+    }
+    return { drawn, burned };
   }
 
-  // Zone invariant, used by tests: every uid appears exactly once.
-  countAll() {
-    return this.drawPile.length + this.hand.length + this.discard.length + this.limbo.length;
-  }
-
-  handIds() {
-    return this.hand.map((c) => c.uid);
+  // Cards this pile still owns (stock + discard; the hand is counted
+  // by the duel when it validates the 20-card invariant).
+  restingCount() {
+    return this.stock.length + this.grave.length;
   }
 }
+
+export { DECK_SIZE };

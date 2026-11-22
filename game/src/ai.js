@@ -1,68 +1,81 @@
-// ai.js — the rival's mind in Ember Sigils.
-// The rival plays by a readable rule, and its next move is shown as an
-// intent before the player ends the turn, so the player can read it and
-// counter it (judge criterion 2). The intent is a commitment: the rival
-// opens its turn with exactly the card the intent named.
+// Ember Sigils — the rival brain.
+// Scores every playable card, then plans up to three plays a turn.
+// The same scoring drives the intent line the player sees, so the
+// rival's plan is a promise, not a bluff.
 
-// Score one card for the rival in this position. Damage is worth its face
-// value, more when it finishes the player; block and healing matter most
-// when the rival is hurt; draw and mana are worth a little always.
-export function scoreRivalCard(card, self, foe) {
+import { EDGE_BONUS, MAX_HP, elementBeats } from "./cards.js";
+
+export function otherSide(side) {
+  return side === "you" ? "rival" : "you";
+}
+
+// How good is this card right now, for this fighter, in this position?
+export function scoreCard(duel, side, inst) {
+  const me = duel.fighter(side);
+  const foe = duel.fighter(otherSide(side));
+  const fx = inst.def.effect;
   let score = 0;
-  for (const op of card.ops) {
-    if (op.op === 'damage') {
-      const afterBlock = Math.max(0, op.value - foe.block);
-      score += afterBlock * 2;
-      if (foe.hp - afterBlock <= 0) score += 100;
-    } else if (op.op === 'block') {
-      score += self.hp <= 8 ? op.value * 2 : op.value;
-    } else if (op.op === 'heal') {
-      score += self.hp <= 10 ? op.value * 2 : op.value * 0.5;
-    } else if (op.op === 'draw') {
-      score += 3;
-    } else if (op.op === 'mana') {
-      score += 2;
-    }
+  if (fx.damage) {
+    let dmg = fx.damage;
+    if (elementBeats(inst.def.element, foe.ward)) dmg += EDGE_BONUS;
+    const through = Math.max(0, dmg - foe.block);
+    score += through * 2 + Math.min(foe.block, dmg) * 0.5;
+    if (through >= foe.hp) score += 100; // lethal is worth everything
   }
+  if (fx.block) score += fx.block * (me.hp < MAX_HP ? 1.5 : 0.4);
+  if (fx.heal) score += fx.heal * (me.hp < MAX_HP ? 2 : 0.2);
+  if (fx.draw) score += 3;
+  if (fx.mana) score += 2;
   return score;
 }
 
-// The rival's plan for its turn: the cards it will play, in order, given
-// its hand and mana. It plays at most three cards, best first, and only
-// cards it can afford with the mana left after each one.
-export function planRivalTurn(hand, mana, self, foe) {
+// Greedy plan: repeatedly take the best affordable card until the mana
+// runs out or maxPlays is reached. manaOverride lets the caller plan
+// with next turn's mana instead of the fighter's current mana.
+//
+// A zero-cost mana card (Mana Bloom) is worth playing before spending:
+// it only ever adds mana, so the planner tries the plan both ways —
+// blooms first, and blooms in score order — and keeps whichever plan
+// scores higher. That stops the rival wasting a turn on one big card
+// when a bloom first would have unlocked two.
+export function planPlays(duel, side, maxPlays, manaOverride) {
+  const me = duel.fighter(side);
+  const mana = manaOverride === undefined ? me.mana : manaOverride;
+  const plain = greedyPlan(duel, side, [...me.hand], mana, maxPlays);
+  const blooms = me.hand.filter((c) => c.def.cost === 0 && c.def.effect.mana);
+  if (!blooms.length) return plain;
+  const rest = me.hand.filter((c) => !blooms.includes(c));
+  let boostedMana = mana;
+  for (const b of blooms) boostedMana += b.def.effect.mana;
+  const boosted = [...blooms, ...greedyPlan(duel, side, rest, boostedMana, Math.max(0, maxPlays - blooms.length))];
+  const value = (plan) => plan.reduce((sum, c) => sum + scoreCard(duel, side, c), 0);
+  return value(boosted) > value(plain) ? boosted : plain;
+}
+
+function greedyPlan(duel, side, pool, mana, maxPlays) {
   const plan = [];
-  let left = mana;
-  const pool = [...hand];
-  while (plan.length < 3) {
+  while (plan.length < maxPlays) {
     let best = null;
-    let bestScore = -1;
-    for (const card of pool) {
-      if (card.cost > left) continue;
-      const s = scoreRivalCard(card, self, foe);
-      if (s > bestScore) { bestScore = s; best = card; }
+    let bestScore = 0;
+    for (const inst of pool) {
+      if (inst.def.cost > mana) continue;
+      const s = scoreCard(duel, side, inst);
+      if (s > bestScore) {
+        bestScore = s;
+        best = inst;
+      }
     }
-    if (!best || bestScore <= 0) break;
+    if (!best) break;
     plan.push(best);
-    left -= best.cost;
+    mana -= best.def.cost;
+    if (best.def.effect.mana) mana += best.def.effect.mana;
     pool.splice(pool.indexOf(best), 1);
   }
   return plan;
 }
 
-// The intent the player sees: the rival's single best card right now, as
-// a short readable line. Computed at the start of the player's turn, from
-// the same scoring, so the intent never lies about what is coming.
-export function rivalIntent(hand, mana, self, foe) {
-  let best = null;
-  let bestScore = -1;
-  for (const card of hand) {
-    if (card.cost > mana) continue;
-    const s = scoreRivalCard(card, self, foe);
-    if (s > bestScore) { bestScore = s; best = card; }
-  }
-  if (!best) return { text: 'The rival holds its cards…', card: null };
-  const kind = best.ops.some((o) => o.op === 'damage') ? 'strike' : 'guard';
-  const verb = kind === 'strike' ? 'will strike with' : 'will play';
-  return { text: `Rival ${verb} ${best.name}`, card: best, kind };
+// One-line human-readable version of a plan, for the intent display.
+export function describePlan(plan) {
+  if (!plan.length) return "The rival holds back…";
+  return plan.map((c) => `${c.def.name} (${c.def.cost})`).join(" · ");
 }

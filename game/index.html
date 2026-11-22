@@ -7,8 +7,72 @@
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-<div id="app" aria-label="Ember Sigils card duel"></div>
-<p id="status" role="status" aria-live="polite"></p>
+<div id="table">
+  <header id="topbar">
+    <div class="brand"><span class="glyphs">▲ ◆ ● ★</span> EMBER SIGILS</div>
+    <div class="topstats">Score <b id="score">0</b> &nbsp;·&nbsp; Round <b id="round">1</b></div>
+    <button id="mute-btn" type="button">Sound: on (M)</button>
+  </header>
+
+  <p id="turn-banner">Welcome to the table.</p>
+
+  <section id="rival-row" aria-label="Rival">
+    <div class="fighter rival">
+      <div class="avatar" aria-hidden="true">☾</div>
+      <div class="fstats">
+        <div class="fname">The Hollow Sigilist <span class="ward">Ward: <b id="rival-ward">— none —</b></span></div>
+        <div class="hpbar"><div class="hpfill rival-fill" id="rival-hp-fill"></div><span class="hpnum" id="rival-hp-num">24 / 24</span></div>
+        <div class="substats"><span>Mana <b id="rival-mana">●●●○○</b></span> <span id="rival-block"></span></div>
+      </div>
+      <div class="rival-hand" id="rival-hand" title="Rival hand"></div>
+    </div>
+    <p id="rival-intent" class="intent"></p>
+  </section>
+
+  <section id="mid-row" aria-label="Battle log">
+    <div id="log"></div>
+    <button id="end-turn" type="button">End Turn ⏎</button>
+  </section>
+
+  <section id="you-row" aria-label="You">
+    <div class="fighter you">
+      <div class="avatar you-av" aria-hidden="true">🔥</div>
+      <div class="fstats">
+        <div class="fname">You — the Ember Duelist <span class="ward">Ward: <b id="you-ward">— none —</b></span></div>
+        <div class="hpbar"><div class="hpfill you-fill" id="you-hp-fill"></div><span class="hpnum" id="you-hp-num">24 / 24</span></div>
+        <div class="substats"><span>Mana <b id="you-mana">●●●○○</b></span> <span id="you-block"></span> <span id="hand-count"></span></div>
+      </div>
+    </div>
+    <div id="hand" class="hand"></div>
+    <p class="hint">Click a card to play it · Keys 1–7 play a card · Enter ends turn · R restarts · M mutes</p>
+  </section>
+
+  <div id="title-screen" class="overlay">
+    <div class="panel">
+      <div class="title-glyphs">▲ ◆ ● ★</div>
+      <h1>EMBER SIGILS</h1>
+      <p class="tagline">A duel of rune cards against <b>The Hollow Sigilist</b>.</p>
+      <div class="wheel">
+        <span><b class="el-ember-t">▲ Ember</b> beats <b class="el-leaf-t">● Leaf</b></span>
+        <span><b class="el-leaf-t">● Leaf</b> beats <b class="el-storm-t">★ Storm</b></span>
+        <span><b class="el-storm-t">★ Storm</b> beats <b class="el-frost-t">◆ Frost</b></span>
+        <span><b class="el-frost-t">◆ Frost</b> beats <b class="el-ember-t">▲ Ember</b></span>
+      </div>
+      <p class="rules">Strike the ward your element beats for <b>+3 Edge damage</b>. Both duelists hold <b>24 HP</b>. Mana grows <b>3 → 4 → 5</b> as rounds pass; draw two cards a round, seven at most in hand. The rival shows its intent — read it, then break it.</p>
+      <button id="begin-btn" type="button">Begin the Duel</button>
+      <p class="tiny">Click a card or press 1–7 to play · Enter ends turn · R restarts · M mutes</p>
+    </div>
+  </div>
+
+  <div id="end-screen" class="overlay" hidden>
+    <div class="panel">
+      <h1 id="end-title">VICTORY</h1>
+      <p class="tagline" id="end-sub"></p>
+      <div id="end-stats" class="stats"></div>
+      <button id="again-btn" type="button">Play Again (R)</button>
+    </div>
+  </div>
+</div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

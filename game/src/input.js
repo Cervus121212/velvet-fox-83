@@ -1,86 +1,84 @@
-// input.js — mouse and keyboard for Ember Sigils.
-// Click a card to play it; click End Turn (or press Enter/Space) to pass.
-// Keys 1–7 play the hand left to right. R restarts, M mutes. Every action
-// goes through the same handlers the mouse uses, so the two agree.
+// Ember Sigils — input: mouse clicks and keyboard shortcuts.
+// Click a card to play it; End Turn (or Enter / Space) passes to the
+// rival. Keys 1-7 play the matching hand slot, R restarts, M mutes.
 
-export function bindInput(root, game, audio, onAction) {
-  function playUid(uid) {
-    const ok = game.playCard(uid);
-    if (ok) {
-      audio.play();
-      if (game.lastPlay) {
-        const side = game.lastPlay.by === 'player' ? 'rival' : 'player';
-        const text = game.lastPlay.damage > 0 ? `-${game.lastPlay.damage}` : '';
-        if (text) {
-          import('./render.js').then(({ floatDamage }) => {
-            floatDamage(root, side, text, game.lastPlay.edge);
-          });
-        }
-        if (game.lastPlay.damage > 0) audio.hit();
-      }
-    } else {
-      audio.deny();
-    }
-    onAction();
+export function bindControls(duel, view, sfx) {
+  const hand = document.getElementById("hand");
+  const endTurnBtn = document.getElementById("end-turn");
+  const beginBtn = document.getElementById("begin-btn");
+  const againBtn = document.getElementById("again-btn");
+  const muteBtn = document.getElementById("mute-btn");
+
+  function afterPlay(result) {
+    if (result && result.ok) sfx.play();
+    view.render();
   }
 
-  root.addEventListener('click', (event) => {
-    const cardBtn = event.target.closest('.card[data-uid]');
-    if (cardBtn) {
-      playUid(Number(cardBtn.dataset.uid));
-      return;
-    }
-    if (event.target.closest('#end-turn')) {
-      game.endTurn();
-      audio.endTurn();
-      onAction();
-      return;
-    }
-    if (event.target.closest('#start-btn') || event.target.closest('#again-btn')) {
-      game.startGame();
-      audio.start();
-      onAction();
-    }
+  hand.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-uid]");
+    if (!btn) return;
+    sfx.unlock();
+    afterPlay(duel.playCard("you", btn.dataset.uid));
   });
 
-  document.addEventListener('keydown', (event) => {
-    if (event.repeat) return;
-    const key = event.key;
-    if (game.phase === 'title' && (key === 'Enter' || key === ' ')) {
-      game.startGame();
-      audio.start();
-      onAction();
+  endTurnBtn.addEventListener("click", () => {
+    sfx.unlock();
+    if (duel.endTurn()) sfx.endTurn();
+    view.render();
+  });
+
+  beginBtn.addEventListener("click", () => {
+    sfx.unlock();
+    duel.start();
+    sfx.begin();
+    view.render();
+  });
+
+  againBtn.addEventListener("click", () => {
+    sfx.unlock();
+    duel.reset();
+    sfx.begin();
+    view.render();
+  });
+
+  muteBtn.addEventListener("click", () => {
+    sfx.muted = !sfx.muted;
+    view.render();
+  });
+
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key >= "1" && ev.key <= "7") {
+      const idx = Number(ev.key) - 1;
+      const card = duel.you.hand[idx];
+      if (card && duel.phase === "play" && duel.turn === "you") {
+        sfx.unlock();
+        afterPlay(duel.playCard("you", card.uid));
+      }
       return;
     }
-    if ((game.phase === 'win' || game.phase === 'loss') && (key === 'Enter' || key === ' ' || key.toLowerCase() === 'r')) {
-      game.restart();
-      audio.start();
-      onAction();
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      if (duel.phase === "title") {
+        sfx.unlock();
+        duel.start();
+        sfx.begin();
+      } else if (duel.endTurn()) {
+        sfx.endTurn();
+      }
+      view.render();
       return;
     }
-    if (game.phase !== 'play') return;
-    if (key === 'Enter' || key === ' ') {
-      event.preventDefault();
-      game.endTurn();
-      audio.endTurn();
-      onAction();
+    if (ev.key === "r" || ev.key === "R") {
+      if (duel.phase !== "title") {
+        duel.reset();
+        sfx.begin();
+        view.render();
+      }
       return;
     }
-    if (key.toLowerCase() === 'r') {
-      game.restart();
-      audio.start();
-      onAction();
-      return;
-    }
-    if (key.toLowerCase() === 'm') {
-      audio.toggleMute();
-      onAction();
-      return;
-    }
-    const n = Number(key);
-    if (Number.isInteger(n) && n >= 1 && n <= 7) {
-      const inst = game.player.deck.hand[n - 1];
-      if (inst) playUid(inst.uid);
+    if (ev.key === "m" || ev.key === "M") {
+      sfx.muted = !sfx.muted;
+      view.render();
     }
   });
 }

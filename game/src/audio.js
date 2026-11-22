@@ -1,54 +1,75 @@
-// audio.js — a tiny WebAudio synth for Ember Sigils.
-// No audio files: every sound is an oscillator through a gain envelope,
-// so the game ships no assets and plays offline. A failed AudioContext
-// (autoplay policy, headless capture) never breaks the game.
+// Ember Sigils — tiny WebAudio synth. No audio files: every sound is
+// an oscillator blip, so the game stays a handful of static files.
 
-export class Sound {
+export class Sfx {
   constructor() {
     this.ctx = null;
     this.muted = false;
   }
 
-  ensure() {
-    if (!this.ctx) {
-      try {
+  unlock() {
+    try {
+      if (!this.ctx) {
         const AC = window.AudioContext || window.webkitAudioContext;
-        if (AC) this.ctx = new AC();
-      } catch { this.ctx = null; }
+        if (!AC) return;
+        this.ctx = new AC();
+      }
+      if (this.ctx.state === "suspended") void this.ctx.resume();
+    } catch {
+      this.ctx = null;
     }
-    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
-    return this.ctx;
   }
 
-  tone(freq, dur = 0.12, type = 'sine', gain = 0.08, when = 0) {
-    if (this.muted) return;
-    const ctx = this.ensure();
-    if (!ctx) return;
+  tone(freq, dur, type, vol, delay) {
+    if (this.muted || !this.ctx) return;
     try {
-      const t0 = ctx.currentTime + when;
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.type = type;
-      osc.frequency.value = freq;
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(gain, t0 + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-      osc.connect(g).connect(ctx.destination);
+      const t0 = this.ctx.currentTime + (delay || 0);
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = type || "sine";
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(vol || 0.08, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
       osc.start(t0);
       osc.stop(t0 + dur + 0.05);
-    } catch { /* sound is decoration; the game plays on */ }
+    } catch {
+      // Audio is garnish; a failure must never break the game.
+    }
   }
 
-  play() { this.tone(520, 0.09, 'triangle', 0.06); this.tone(780, 0.1, 'triangle', 0.05, 0.05); }
-  hit() { this.tone(180, 0.14, 'sawtooth', 0.07); this.tone(120, 0.16, 'square', 0.04, 0.02); }
-  deny() { this.tone(140, 0.08, 'square', 0.04); }
-  endTurn() { this.tone(330, 0.08, 'sine', 0.05); }
-  start() { this.tone(392, 0.1, 'triangle', 0.06); this.tone(523, 0.12, 'triangle', 0.06, 0.08); }
-  win() { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.22, 'triangle', 0.07, i * 0.11)); }
-  lose() { [392, 330, 262, 196].forEach((f, i) => this.tone(f, 0.22, 'sine', 0.06, i * 0.12)); }
+  play() {
+    this.tone(660, 0.12, "triangle", 0.07);
+    this.tone(990, 0.1, "sine", 0.05, 0.05);
+  }
 
-  toggleMute() {
-    this.muted = !this.muted;
-    return this.muted;
+  hit() {
+    this.tone(180, 0.18, "sawtooth", 0.06);
+  }
+
+  heal() {
+    this.tone(880, 0.15, "sine", 0.06);
+    this.tone(1174, 0.18, "sine", 0.05, 0.07);
+  }
+
+  endTurn() {
+    this.tone(440, 0.1, "triangle", 0.05);
+    this.tone(330, 0.14, "triangle", 0.05, 0.08);
+  }
+
+  begin() {
+    this.tone(523, 0.12, "triangle", 0.07);
+    this.tone(659, 0.12, "triangle", 0.07, 0.09);
+    this.tone(784, 0.2, "triangle", 0.07, 0.18);
+  }
+
+  win() {
+    [523, 659, 784, 1046].forEach((f, i) => this.tone(f, 0.22, "triangle", 0.08, i * 0.11));
+  }
+
+  lose() {
+    [392, 330, 262, 196].forEach((f, i) => this.tone(f, 0.25, "sawtooth", 0.05, i * 0.13));
   }
 }
